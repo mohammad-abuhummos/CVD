@@ -9,6 +9,7 @@ export default function App() {
       <Route path="/" element={<LoginPage />} />
       <Route path="/home/*" element={<HomeLayout />} />
     </Routes>
+    
 
   );
 }

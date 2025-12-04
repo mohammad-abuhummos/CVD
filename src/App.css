@@ -286,3 +286,13 @@ html[data-theme="dark"] ::-webkit-scrollbar-thumb {
 html[data-theme="dark"] ::-webkit-scrollbar-track {
   background: #1f2937;
 }
+
+
+
+/*  (Main bakcground color) when in dark mode:  color: linear-gradient(90 deg, #1d2023, #334941)
+
+/* ( aside background color): leniar-gradient (180 deg ,#141515, #131314)
+
+/* text color: (white)
+
+/* camera settings sarea lloewed only ion many kind of rulew

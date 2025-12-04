@@ -6,7 +6,6 @@ import fieldImage3 from "./assets/Stadium.png";
 import { getYards, getYardById } from "./YardApis/YardsCrud";
 import { Post, GET } from "./ApisCall/ApiClient";
 import { YardsBaseUrl } from "./ApisCall/Urls";
-import { YardsCamerasBaseUrl } from "./ApisCall/Urls";
 import { updateYard } from "./YardApis/YardsCrud";
 import { DeleteYard } from "./YardApis/YardsCrud";
 import { getCamera } from "./CamerasApis/GetCameras.js";
@@ -56,20 +55,21 @@ export default function OpenHomePage({ theme, setTheme }) {
   const [yardSearch, setYardSearch] = useState("");
   const [activeCam, setActiveCam] = useState(null);
   const [showShimmer, setShowShimmer] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [isDownloading, setIsDownloading] = useState(false);
 
-  // Sync theme prop (if provided) to the document and localStorage so other parts can read it.
+
   useEffect(() => {
     try {
       const current = theme ?? localStorage.getItem("theme") ?? "light";
       document.documentElement.setAttribute("data-theme", current);
       localStorage.setItem("theme", current);
     } catch (e) {
-      // ignore (safety for SSR or environments without document)
+
     }
   }, [theme]);
 
   const handleToggleTheme = () => {
-    // If parent provided setTheme, use it so HomeLayout stays in sync.
     if (typeof setTheme === "function") {
       setTheme(prev => {
         const next = prev === "light" ? "dark" : "light";
@@ -82,7 +82,6 @@ export default function OpenHomePage({ theme, setTheme }) {
       return;
     }
 
-    // Otherwise fallback to toggling document/localStorage theme directly.
     try {
       const cur = document.documentElement.getAttribute("data-theme") || localStorage.getItem("theme") || "light";
       const next = cur === "light" ? "dark" : "light";
@@ -170,8 +169,12 @@ export default function OpenHomePage({ theme, setTheme }) {
 
 
   const handleSaveYard = async () => {
+    const validNameRegex = /^(?=.*\S).+$/;
+
+    if (!validNameRegex.test(yardName)) {
+      return setErrorName("Please enter a valid yard name (cannot be empty or just spaces)");
+    }
     if (!yardName.trim()) return setErrorName("Please enter a yard name");
-    if (width < 60 || width > 100 || height < 60 || height > 100) return setErrorSize("Width and height must be between 60 and 100");
 
     const payload = {
       id: 0,
@@ -186,8 +189,10 @@ export default function OpenHomePage({ theme, setTheme }) {
 
     try {
       const created = await Post(YardsBaseUrl(), payload);
-      setYards(prev => [...prev, created]); // add to list
-      setSelectedYard(created);             // select it
+      setYards(prev => [...prev, created]);
+      setSelectedYard(created);
+      setErrorName("");
+      setErrorSize("");
     } catch (err) {
       console.error("Failed to create yard:", err);
     }
@@ -205,8 +210,7 @@ export default function OpenHomePage({ theme, setTheme }) {
       description,
       width: Number(width),
       height: Number(height),
-      status: selectedYard.status || 0, // keep current or default
-      // Optional: include cameraCount if needed for API
+      status: selectedYard.status || 0,
       cameraCount: pickedCameras.length
     };
 
@@ -261,6 +265,9 @@ export default function OpenHomePage({ theme, setTheme }) {
       const response = await DeleteYard(yardToDelete.id, {});
       console.log("Yard deleted:", response);
 
+      // Update frontend state
+      setYards(prev => prev.filter(yard => yard.id !== yardToDelete.id));
+
       setConfirming(false);
       setYardToDelete(null);
 
@@ -268,6 +275,7 @@ export default function OpenHomePage({ theme, setTheme }) {
       console.error("Error deleting yard:", error);
     }
   };
+
 
 
   // Camera assignment states
@@ -378,7 +386,6 @@ export default function OpenHomePage({ theme, setTheme }) {
 
     if (pickedCameras.some(c => String(c.id) === String(cam.id))) return;
 
-    console.log(pickedCameras)
 
 
     const newAssign = { cameraId: cam.id, x: 50, y: 50 };
@@ -573,6 +580,68 @@ export default function OpenHomePage({ theme, setTheme }) {
   }, [expanded, showChannels]);
 
 
+
+  const [downloadForm, setDownloadForm] = useState({
+    date: "",
+    hour: "",
+    minute: "",
+    resolution: ""
+  });
+
+
+
+  {/* download vodeo logic */ }
+
+  const handleDownload = async () => {
+    const { date, hour, minute, channelName, durationInMinutes } = downloadForm;
+
+    if (!date || hour === "" || minute === "" || !channelName || !durationInMinutes) {
+      console.error("All fields are required");
+      return;
+    }
+
+    const iso = `${date}T${hour.padStart(2, "0")}:${minute.padStart(2, "0")}:00`;
+
+    try {
+      setIsDownloading(true);
+      setDownloadProgress(0);
+
+      const response = await DawnloadVideo(
+        { channelName, dayWithTime: iso, durationInMinutes: parseInt(durationInMinutes) },
+        progressEvent => {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setDownloadProgress(percent);
+        }
+      );
+      alert("Video has downloaded")
+
+      // same download logic as before
+      const blob = new Blob([response.data], { type: "video/mp4" });
+      let fileName = "video.mp4";
+      const header = response?.headers?.["content-disposition"];
+      if (header) {
+        const match = header.match(/filename="?([^"]+)"?/);
+        if (match) fileName = match[1];
+      }
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      window.URL.revokeObjectURL(url);
+
+      console.log("Downloaded:", activeCam.name);
+    } catch (err) {
+      alert("Download failed");
+      console.error("Download failed:", err);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+
+
   return (
     <div style={{ height: "800px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", position: "relative", paddingTop: "25px" }}>
       {showShimmer && (
@@ -594,7 +663,7 @@ export default function OpenHomePage({ theme, setTheme }) {
               transform: panelVisible
                 ? "translate(-50%, -50%)"
                 : "translate(100%, -50%)",
-              background: 'linear-gradient(90deg, #f5f9fd 0%, #f2f7fe 40%,  #8cf2b3ff 350%)',
+              background: theme === "dark" ? "linear-gradient(90deg, #1d2023 0%, #1d2023 40%, #334941 100%)" : "linear-gradient(90deg, #f5f9fd 0%, #f2f7fe 40%,  #8cf2b3ff 350%)",
               color: "white",
               borderRadius: "12px",
               padding: "40px",
@@ -945,6 +1014,7 @@ export default function OpenHomePage({ theme, setTheme }) {
                       <input
                         type="text"
                         placeholder="Enter yard name"
+                        pattern="/^(?=.*\S).+$/ "
                         value={yardName}
                         onChange={(e) => {
                           setYardName(e.target.value);
@@ -1688,7 +1758,6 @@ export default function OpenHomePage({ theme, setTheme }) {
 
                 <button
                   onClick={async () => {
-                    console.log("Start updating cameras");
 
                     const yardId = selectedYard?.id;
                     if (!yardId) {
@@ -1696,17 +1765,11 @@ export default function OpenHomePage({ theme, setTheme }) {
                       return;
                     }
 
-                    console.log("Selected yard:", selectedYard);
-                    console.log("Picked cameras:", pickedCameras);
-
                     try {
                       // Extract camera IDs - handle both nested (camera.id) and flat (cameraId, id) structures
                       const existingIds = assignedCameras
                         .filter(a => a.yardId === selectedYard.id)
                         .map(a => String(a.camera?.id || a.cameraId || a.id));
-                      console.log("assignedCameras:", assignedCameras);
-                      console.log("Selected yard ID:", selectedYard.id);
-                      console.log("Existing assigned camera IDs for this yard:", existingIds);
 
                       for (const cam of pickedCameras) {
                         if (!existingIds.includes(String(cam.id))) {
@@ -1719,7 +1782,6 @@ export default function OpenHomePage({ theme, setTheme }) {
                             console.log("Camera already assigned to another yard, skipping:", cam);
                             alert(`Camera "${cam.name}" is already assigned to another yard. A camera can only be assigned to one yard at a time.`);
                           } else {
-                            console.log("Creating camera:", cam);
                             await createCamera({
                               yardId: yardId,
                               cameraId: cam.id,
@@ -1732,17 +1794,12 @@ export default function OpenHomePage({ theme, setTheme }) {
                       }
 
                       const pickedIds = pickedCameras.map(c => String(c.id));
-                      console.log("Picked camera IDs:", pickedIds);
 
                       const toUnassign = assignedCameras.filter(
                         a => a.yardId === selectedYard.id && !pickedIds.includes(String(a.camera?.id || a.cameraId || a.id))
                       );
 
-                      console.log("Assigned cameras for this yard:", assignedCameras);
-                      console.log("Cameras to unassign:", toUnassign);
-
                       for (const cam of toUnassign) {
-                        console.log("Deleting camera:", cam);
                         await DeleteYardCamera(yardId, cam.camera?.id || cam.cameraId || cam.id);
                       }
 
@@ -1805,14 +1862,16 @@ export default function OpenHomePage({ theme, setTheme }) {
 
       {/* Main Yard Display */}
       <div
+        className="main-container"
         style={{ display: "flex", width: "100%", height: "100vh" }}>
         {/* Left Sidebar */}
         {!expanded && (
           <aside
+            className="left-side"
             style={{
               width: "25%",
               minWidth: "288px",
-              background: "rgba(255,255,255,0.8)",
+              background: theme === "dark" ? " #141515 " : "rgba(255,255,255,0.8)",
               backdropFilter: "blur(12px)",
               borderRight: "1px solid #ccc",
               boxShadow: "0 0 25px rgba(0,0,0,0.2)",
@@ -1859,7 +1918,7 @@ export default function OpenHomePage({ theme, setTheme }) {
                   </svg>
                 </div>
                 <div>
-                  <h2 style={{ fontSize: "1.125rem", fontWeight: "bold", background: "linear-gradient(to right, #111827, #374151)", WebkitBackgroundClip: "text", color: "transparent" }}>Yards</h2>
+                  <h2 style={{ fontSize: "1.125rem", fontWeight: "bold", color: theme === "dark" ? "white" : "black", WebkitBackgroundClip: "text" }}>Yards</h2>
                   <p style={{ fontSize: "0.75rem", color: "#6b7280" }}>Manage Your Yards</p>
                 </div>
               </div>
@@ -1901,7 +1960,7 @@ export default function OpenHomePage({ theme, setTheme }) {
                 paddingRight: "5%",
                 paddingBottom: "0.5rem",
                 top: 0,
-                background: "rgba(255,255,255,0.85)",
+                background: theme === "dark" ? "#141515" : "rgba(255,255,255,0.85)",
                 backdropFilter: "blur(12px)",
                 zIndex: 20,
               }}>
@@ -1914,10 +1973,10 @@ export default function OpenHomePage({ theme, setTheme }) {
                     width: "100%",
                     padding: "0.65rem 0.75rem",
                     borderRadius: "0.75rem",
-                    border: "1px solid #bbb",
+                    border: theme === "dark" ? "1px solid gray" : "1px solid #bbb",
                     fontSize: "0.875rem",
                     outline: "none",
-                    background: "rgba(255,255,255,0.6)",
+                    background: theme === "dark" ? "#141515" : "rgba(255,255,255,0.6)",
                     transition: "all 0.25s ease",
                   }}
                   onFocus={(e) => {
@@ -1937,9 +1996,8 @@ export default function OpenHomePage({ theme, setTheme }) {
                   flexDirection: "row",
                   alignItems: "center",
                   gap: "8px",
-                  padding: "10px",
+                  padding: "8px",
                   borderRadius: "1rem",
-                  //  justifyContent: "space-between",
                 }}
               >
                 <svg
@@ -1963,61 +2021,85 @@ export default function OpenHomePage({ theme, setTheme }) {
                   <rect x="18" y="8" width="4" height="8" fill="rgba(255,255,255,0.8)" />
                 </svg>
 
-                <h3 style={{ color: "black", margin: 0 }}>
+                <h3 style={{ color: theme === "dark" ? "#fff" : "black", margin: 0 }}>
                   Available Yards ({yards.length})
                 </h3>
 
                 <button
                   onClick={handleToggleTheme}
                   style={{
-                    marginLeft: "auto",
-                    width: "50px",
-                    height: "26px",
-                    borderRadius: "30px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    width: "80px",
+                    height: "36px",
+                    padding: "0 5px",
+                    marginLeft: "22%",
+                    borderRadius: "20px",
                     border: "2px solid #2563eb",
                     background: theme === "light" ? "#e5e7eb" : "#1f2937",
-                    position: "relative",
+                    color: theme === "light" ? "#000" : "#fff",
+                    fontWeight: "bold",
                     cursor: "pointer",
-                    transition: "background 0.25s",
+                    position: "relative",
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
+                    transition: "background 0.25s, color 0.25s"
                   }}
                 >
+                  {/* Light icon */}
+                  <span style={{ opacity: theme === "light" ? 1 : 0.4, transition: "opacity 0.25s" }}>☀</span>
+
+                  {/* Toggle circle */}
                   <div
                     style={{
-                      width: "20px",
-                      height: "20px",
-                      borderRadius: "50%",
-                      background: theme === "light" ? "#2563eb" : "#f9fafb",
                       position: "absolute",
-                      top: "50%",
-                      left: theme === "light" ? "4px" : "26px",
-                      transform: "translateY(-50%)",
-                      transition: "left 0.25s",
+                      top: "3px",
+                      left: theme === "light" ? "3px" : "48.5px",
+                      width: "25px",
+                      height: "26px",
+                      borderRadius: "50%",
+                      background: theme === "light" ? "linear-gradient(90deg, yellow 75%, darkblue 90%)" : "linear-gradient(90deg, yellow 1%, darkblue 30%)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      transition: "left 0.25s, background 0.25s",
+                      fontSize: "16px",
+                      fontWeight: "bold",
+                      color: theme === "light" ? "#fff" : "#000"
                     }}
-                  />
+                  >
+                    {theme === "light" ? "☀" : "࣪☾"}
+                  </div>
+
+                  {/* Dark icon */}
+                  <span style={{ opacity: theme === "dark" ? 1 : 0.4, transition: "opacity 0.25s" }}>࣪☾</span>
                 </button>
+
               </div>
 
             </div>
 
             {/* Navigation / Yard List */}
-            <nav style={{ flex: 1, padding: "1rem", overflowY: "auto", display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <nav style={{
+              flex: 1, padding: "1rem", overflowY: "auto", display: "flex", flexDirection: "column", gap: "1rem", scrollbarWidth: "thin",
+              scrollbarColor: theme === "dark" ? "rgba(13,246,192,0.5) rgba(0,0,0,0.3)" : "white rgba(0,0,0,0.3)"
+            }}>
 
               {yards
                 ?.filter((yard) =>
-                  yard.name.toLowerCase().includes(yardSearch.toLowerCase())
+                  yard?.name?.toLowerCase().includes(yardSearch.toLowerCase())
                 )
                 .map((yard) => (
                   <div
                     key={yard.id}
-                    // OnClick for selecting a yard
                     onClick={async () => {
                       setShowShimmer(true)
                       try {
                         const yardDetails = await getYardById(yard.id);
-                        setSelectedYard(yardDetails); // triggers the useEffect automatically
+                        setSelectedYard(yardDetails);
                       } catch (err) {
                         console.error(err);
-                        setCameras([]); // optional fallback
+                        setCameras([]);
                       } finally {
                         setTimeout(() => setShowShimmer(false), 700);
                       }
@@ -2088,7 +2170,7 @@ export default function OpenHomePage({ theme, setTheme }) {
                   alignItems: "center",
                   justifyContent: "center",
                   gap: "0.5rem",
-                  padding: "1rem",
+                  padding: "0.7rem",
                   borderRadius: "10px",
                   background: "linear-gradient(135deg,#ef4444,#ec4899)",
                   color: "white",
@@ -2115,8 +2197,22 @@ export default function OpenHomePage({ theme, setTheme }) {
 
         )}
 
+
+
+
+
+
+
+
         {/* Right Section: Yard Image + Info (75%) */}
+
+
+
+
+
+
         <div
+          className="right-side"
           style={{
             width: expanded ? "100%" : "75%",
             height: "100%",
@@ -2131,6 +2227,7 @@ export default function OpenHomePage({ theme, setTheme }) {
         >
           {selectedYard && (
             <div
+              className="yard-image"
               style={{
                 position: "relative",
                 width: expanded ? "100%" : "100%",
@@ -2171,6 +2268,28 @@ export default function OpenHomePage({ theme, setTheme }) {
                 onMouseEnter={() => setHovered(true)}
                 onMouseLeave={() => !expanded && setHovered(false)}
               >
+                {!expanded &&(
+                <div
+                  style={{
+                    position: "fixed",
+                    top: "25%",
+                    left: "25%",
+                    width: "50%",
+                    height: "50%",
+                    border: "none",
+                    borderRadius: "50%", 
+                    background: "radial-gradient(circle, rgba(255, 255, 255, 0.3) 10%, rgba(255, 255, 255, 0) 60%)",
+                    zIndex: 9999,
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    fontSize: "35px"
+                  }}
+                >
+                  <p style={{ position: "relative", width: "2px", height: "25px", fontSize:"35px" }}>🔍</p>
+                </div>
+                )}
+
                 {/* Main image */}
                 <img
                   src={expanded ? fieldImage3 : selectedYard.image || fieldImage2}
@@ -2256,84 +2375,181 @@ export default function OpenHomePage({ theme, setTheme }) {
                     </div>
                   ))}
 
-                {/* Channels popup for activeCam only */}
-                {expanded && showChannels && activeCam && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: `${activeCam.y}%`,
-                      left: `${activeCam.x}%`,
-                      transform: "translate(-50%, 50px)",
-                      background: "rgba(0,0,0,0.8)",
-                      color: "#fff",
-                      borderRadius: "8px",
-                      padding: "5px 10px",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "4px",
-                      fontSize: "12px",
-                      zIndex: 2000,
-                    }}
-                  >
-                    {[activeCam.channel640X360, activeCam.channel704X576, activeCam.channel2560X1440]
-                      .filter(ch => ch && ch.resolution)
-                      .map((ch, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            cursor: "pointer",
-                            padding: "3px 5px",
-                            borderRadius: "4px",
-                            transition: "background 0.2s",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            gap: "8px",
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setChannelToDownload({ cam: activeCam, channel: ch });
-                          }}
-                          onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.2)")}
-                          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-                        >
-                          <span>{ch.resolution}</span>
-                          {
-                            channelToDownload && channelToDownload.cam?.id === activeCam.id &&
-                            channelToDownload.channel?.resolution === ch.resolution && (
-                              <button
-                                onClick={async (ev) => {
-                                  ev.stopPropagation();
-                                  try {
-                                    await DawnloadVideo({
-                                      channelName: ch.resolution,
-                                      dayWithTime: new Date().toISOString(),
-                                      durationInMinutes: 10,
-                                    });
-                                    console.log("API called successfully:", activeCam.name, ch.resolution);
-                                  } catch (err) {
-                                    console.error("API call failed:", err);
-                                  }
-                                  setChannelToDownload(null);
-                                }}
-                                style={{
-                                  background: "#0df6c0",
-                                  border: "none",
-                                  color: "#000",
-                                  padding: "4px 8px",
-                                  borderRadius: "6px",
-                                  cursor: "pointer",
-                                  fontWeight: 700,
-                                }}
-                              >
-                                Download
-                              </button>
-                            )
-                          }
+                {expanded && showChannels && activeCam && (() => {
+                  const popupHeight = 260;
+                  const popupWidth = 260;
+
+                  const topPx = (window.innerHeight * activeCam.y) / 100;
+                  const leftPx = (window.innerWidth * activeCam.x) / 100;
+
+                  let transformY = 50;
+                  if (topPx + popupHeight > window.innerHeight) {
+                    transformY = -popupHeight - 10;
+                  }
+
+                  let transformX = -50;
+                  if (leftPx + popupWidth / 2 > window.innerWidth) {
+                    transformX = window.innerWidth - leftPx - popupWidth;
+                  } else if (leftPx - popupWidth / 2 < 0) {
+                    transformX = -leftPx + 10;
+                  }
+
+                  return (
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: `${activeCam.y}%`,
+                        left: `${activeCam.x}%`,
+                        transform: `translate(${transformX}px, ${transformY}px)`,
+                        background: "rgba(0,0,0,0.9)",
+                        color: "#fff",
+                        borderRadius: "12px",
+                        padding: "15px",
+                        width: `${popupWidth}px`,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "12px",
+                        zIndex: 3000,
+                        fontFamily: "Arial, sans-serif"
+                      }}
+                      onClick={e => e.stopPropagation()}
+                    >
+                      {/* DATE */}
+                      <h3 style={{ color: "#0df6c0", margin: "auto", justifyContent: "center" }}>{activeCam?.name}</h3>
+                      <fieldset style={{ border: "1px solid #555", borderRadius: "8px", padding: "10px" }}>
+                        <legend style={{ color: "#0df6c0", fontWeight: 300 }}>Select Date</legend>
+                        <input
+                          type="date"
+                          value={downloadForm.date}
+                          onChange={e => setDownloadForm(prev => ({ ...prev, date: e.target.value }))}
+                          style={{ width: "95%", padding: "6px", borderRadius: "6px", border: "1px solid #444" }}
+                        />
+                      </fieldset>
+
+                      {/* TIME */}
+                      <fieldset style={{ border: "1px solid #555", borderRadius: "8px", padding: "10px" }}>
+                        <legend style={{ color: "#0df6c0", fontWeight: 300 }}>Select Time</legend>
+                        <div style={{ display: "flex", gap: "10px" }}>
+                          <input
+                            type="number"
+                            placeholder="Hour"
+                            min="0"
+                            max="23"
+                            value={downloadForm.hour}
+                            onChange={e => setDownloadForm(prev => ({ ...prev, hour: e.target.value }))}
+                            style={{ flex: 1, padding: "6px", borderRadius: "6px", border: "1px solid #444" }}
+                          />
+                          <input
+                            type="number"
+                            placeholder="Minute"
+                            min="0"
+                            max="59"
+                            value={downloadForm.minute}
+                            onChange={e => setDownloadForm(prev => ({ ...prev, minute: e.target.value }))}
+                            style={{ flex: 1, padding: "6px", borderRadius: "6px", border: "1px solid #444" }}
+                          />
                         </div>
-                      ))}
-                  </div>
-                )}
+                      </fieldset>
+
+                      {/* DURATION */}
+                      <fieldset style={{ border: "1px solid #555", borderRadius: "8px", padding: "10px" }}>
+                        <legend style={{ color: "#0df6c0", fontWeight: 300 }}>Duration (minutes)</legend>
+                        <input
+                          type="number"
+                          placeholder="Minutes"
+                          min="1"
+                          value={downloadForm.durationInMinutes}
+                          onChange={e => setDownloadForm(prev => ({ ...prev, durationInMinutes: e.target.value }))}
+                          style={{ width: "95%", padding: "6px", borderRadius: "6px", border: "1px solid #444" }}
+                        />
+                      </fieldset>
+
+                      {/* RESOLUTION */}
+                      <fieldset style={{ border: "1px solid #555", borderRadius: "8px", padding: "10px" }}>
+                        <legend style={{ color: "#0df6c0", fontWeight: 300 }}>Select Resolution</legend>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                          {[activeCam.channel640X360, activeCam.channel704X576, activeCam.channel2560X1440]
+                            .filter(ch => ch && ch.name)
+                            .map(ch => (
+                              <label key={ch.id} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                <input
+                                  type="radio"
+                                  name="resolution"
+                                  value={ch.name}
+                                  checked={downloadForm.channelName === parseInt(ch.name)}
+                                  onChange={e => setDownloadForm(prev => ({
+                                    ...prev,
+                                    channelName: parseInt(e.target.value)
+                                  }))}
+                                  style={{ accentColor: "#0df6c0" }}
+                                />
+                                ({ch.resolution})
+                              </label>
+                            ))}
+                        </div>
+                      </fieldset>
+
+                      {/* DOWNLOAD BUTTON */}
+                      <button
+                        style={{
+                          background: "#0df6c0",
+                          border: "none",
+                          padding: "10px",
+                          borderRadius: "8px",
+                          color: "#000",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          marginTop: "5px"
+                        }}
+                        onClick={handleDownload}
+                        disabled={isDownloading}
+                      >
+                        {isDownloading ? "Downloading..." : "Download"}
+                      </button>
+                      {isDownloading && (
+                        <div style={{
+                          position: "fixed",
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          height: "100%",
+                          backgroundColor: "rgba(0,0,0,0.5)",
+                          borderRadius: "12px",
+                          zIndex: 9999,
+                          display: "flex",
+                          justifyContent: "center",
+                          alignItems: "center",
+                          pointerEvents: "auto", // blocks clicks underneath
+                        }}>
+                          <svg viewBox="0 0 36 36" width="120" height="120">
+                            <path
+                              d="M18 2.0845
+           a 15.9155 15.9155 0 0 1 0 31.831
+           a 15.9155 15.9155 0 0 1 0 -31.831"
+                              fill="none"
+                              stroke="#555"
+                              strokeWidth="3"
+                            />
+                            <path
+                              d="M18 2.0845
+           a 15.9155 15.9155 0 0 1 0 31.831
+           a 15.9155 15.9155 0 0 1 0 -31.831"
+                              fill="none"
+                              stroke="#0df6c0"
+                              strokeWidth="3"
+                              strokeDasharray={`${downloadProgress}, 100`}
+                              strokeLinecap="round"
+                            />
+                            <text x="18" y="20.35" fill="#fff" fontSize="6" textAnchor="middle">
+                              {downloadProgress}%
+                            </text>
+                          </svg>
+                        </div>
+                      )}
+
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           )}
@@ -2341,7 +2557,7 @@ export default function OpenHomePage({ theme, setTheme }) {
           {/* Info Panels below yard image */}
           {!expanded && selectedYard && (
             <div
-              className="info-panels layout-wrapper"
+              className="info-panels"
               style={{
                 width: "95%",
                 maxWidth: "900px",
@@ -2354,7 +2570,6 @@ export default function OpenHomePage({ theme, setTheme }) {
             >
               {/* Yard Info */}
               <div
-                className="yard-info main-panel"
                 style={{
                   flex: 1,
                   background: "rgba(28,28,28,0.9)",
@@ -2363,7 +2578,7 @@ export default function OpenHomePage({ theme, setTheme }) {
                   padding: "15px",
                   color: "#fff",
                   boxShadow: "0 0 30px rgba(0,0,0,0.6)",
-                  border: "1px solid rgba(255,255,255,0.1)",
+                  border: theme === "dark" ? "1px solid rgba(100,100,100,0.1)" : "1px solid rgba(255,255,255,0.1)",
                   display: "flex",
                   flexDirection: "column",
                   gap: "10px",
@@ -2372,7 +2587,7 @@ export default function OpenHomePage({ theme, setTheme }) {
                 }}
               >
                 {/* Title Div */}
-                <div className="panel-title" style={{ flex: "0 0 auto" }}>
+                <div style={{ flex: "0 0 auto" }}>
                   <h2
                     style={{
                       margin: 0,
@@ -2388,7 +2603,7 @@ export default function OpenHomePage({ theme, setTheme }) {
                 </div>
 
                 {/* Content Div */}
-                <div className="panel-content" style={{ display: "flex", flexDirection: "column", gap: "6px", flex: "1" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", flex: "1" }}>
                   <p style={{ margin: "4px 0", fontSize: "14px" }}><strong style={{ fontWeight: 900 }}>Width : </strong> {selectedYard?.width}%</p>
                   <p style={{ margin: "4px 0", fontSize: "14px" }}><strong style={{ fontWeight: 900 }}>Height : </strong> {selectedYard?.height}%</p>
                   <p style={{ margin: "4px 0", fontSize: "14px" }}><strong style={{ fontWeight: 900 }}>Cameras : </strong> {pickedCameras.length || 0}</p>
@@ -2396,7 +2611,7 @@ export default function OpenHomePage({ theme, setTheme }) {
                 </div>
 
                 {/* Button Div */}
-                <div className="panel-actions" style={{ flex: "0 0 auto" }}>
+                <div style={{ flex: "0 0 auto" }}>
                   <button
                     onClick={openUpdateSettings}
                     style={{
@@ -2427,7 +2642,6 @@ export default function OpenHomePage({ theme, setTheme }) {
 
               {/* Assigned Cameras */}
               <div
-                className="assigned-cameras side-panel"
                 style={{
                   width: "250px",
                   background: "rgba(28,28,28,0.9)",
@@ -2436,7 +2650,7 @@ export default function OpenHomePage({ theme, setTheme }) {
                   padding: "15px",
                   color: "#fff",
                   boxShadow: "0 0 30px rgba(0,0,0,0.6)",
-                  border: "1px solid rgba(255,255,255,0.1)",
+                  border: theme === "dark" ? "1px solid rgba(100,100,100,0.1)" : "1px solid rgba(255,255,255,0.1)",
                   display: "flex",
                   flexDirection: "column",
                   gap: "8px",
@@ -2445,7 +2659,7 @@ export default function OpenHomePage({ theme, setTheme }) {
                 }}
               >
                 {/* Title Div */}
-                <div className="panel-title" style={{ flex: "0 0 auto" }}>
+                <div style={{ flex: "0 0 auto" }}>
                   <h3
                     style={{
                       margin: 0,
@@ -2461,7 +2675,6 @@ export default function OpenHomePage({ theme, setTheme }) {
 
                 {/* Content Div - Scrollable */}
                 <div
-                  className="panel-content scrollable"
                   style={{
                     flex: 1,
                     overflowY: "auto",
@@ -2500,7 +2713,7 @@ export default function OpenHomePage({ theme, setTheme }) {
                 </div>
 
                 {/* Button Div */}
-                <div className="panel-actions" style={{ flex: "0 0 auto" }}>
+                <div style={{ flex: "0 0 auto" }}>
                   <button
                     onClick={openCameraManagement}
                     style={{

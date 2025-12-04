@@ -17,21 +17,20 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// POST with Bearer token from localStorage
-export async function Post(uri, body) {
-  try {
-    const token = localStorage.getItem("token"); // replace "token" with your key
-    const config = token
-      ? { headers: { Authorization: `Bearer ${token}` } }
-      : {};
 
-    const response = await api.post(uri, body, config);
-    return response.data;
+export async function Post(uri, body, config = {}) {
+  try {
+    const token = localStorage.getItem("token");
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+    const response = await api.post(uri, body, { headers, ...config });
+    return response; 
   } catch (error) {
     console.error("Create failed:", error.response?.data || error.message);
     throw error;
   }
 }
+
 
 
 // PUT

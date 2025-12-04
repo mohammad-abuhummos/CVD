@@ -5,22 +5,20 @@ import LoginPage from "./LoginPage";
 
 
 export default function HomeLayout() {
-  const [collapsed, setCollapsed] = useState(false);
 
-  const linkStyle = (isActive) => ({
-    color: isActive ? "white" : "#555",
-    marginBottom: "10px",
-    textDecoration: "none",
-    background: isActive ? "linear-gradient(90deg, limegreen 50%, green 100%)" : "transparent",
-    padding: "10px 10px",
-    borderRadius: "10px",
-    display: "block",
-    fontWeight: "bold",
-    transition: "background 0.3s, color 0.3s",
-  });
+  const [collapsed, setCollapsed] = useState(false);
+  const [theme, setTheme] = useState("light");
+  const toggleTheme = () => {
+  const current = document.documentElement.getAttribute("data-theme");
+  document.documentElement.setAttribute(
+    "data-theme",
+    current === "dark" ? "light" : "dark"
+  );
+};
+
 
   return (
-    <div style={{ display: "flex", height: "100vh" }}>
+    <div style={{ display: "flex", height: "100vh" }} data-theme={theme}>
       {/* Main content */}
       <main
         style={{
@@ -28,12 +26,14 @@ export default function HomeLayout() {
           padding: "20px",
           transition: "margin-left 0.3s",
           overflow: "auto",
-          background: 'linear-gradient(90deg, #f5f9fd 0%, #f2f7fe 40%,  #8cf2b3ff 350%)',
+          background: theme === "dark"
+            ? "#0f172a"              
+            : "linear-gradient(90deg, #f5f9fd 0%, #f2f7fe 40%,  #8cf2b3ff 350%)",
         }}
       >
         <Routes>
-          <Route path="/" element={<OpenHomePage />} />
-          <Route path="/" element={<LoginPage />} />
+          <Route path="/" element={<OpenHomePage theme={theme} setTheme={setTheme} />} />
+          <Route path="/LoginPage" element={<LoginPage />} />
         </Routes>
 
       </main>

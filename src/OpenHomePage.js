@@ -27,7 +27,7 @@ import { Pagination } from "swiper/modules";
 
 
 
-export default function OpenHomePage() {
+export default function OpenHomePage({ theme, setTheme }) {
   const [yards, setYards] = useState([]);
   const [selectedYard, setSelectedYard] = useState(null);
   const [showBar, setShowBar] = useState(false);
@@ -55,9 +55,41 @@ export default function OpenHomePage() {
   const [isHovered, setIsHovered] = useState(false);
   const [yardSearch, setYardSearch] = useState("");
   const [activeCam, setActiveCam] = useState(null);
+  const [showShimmer, setShowShimmer] = useState(false);
 
+  // Sync theme prop (if provided) to the document and localStorage so other parts can read it.
+  useEffect(() => {
+    try {
+      const current = theme ?? localStorage.getItem("theme") ?? "light";
+      document.documentElement.setAttribute("data-theme", current);
+      localStorage.setItem("theme", current);
+    } catch (e) {
+      // ignore (safety for SSR or environments without document)
+    }
+  }, [theme]);
 
+  const handleToggleTheme = () => {
+    // If parent provided setTheme, use it so HomeLayout stays in sync.
+    if (typeof setTheme === "function") {
+      setTheme(prev => {
+        const next = prev === "light" ? "dark" : "light";
+        try {
+          document.documentElement.setAttribute("data-theme", next);
+          localStorage.setItem("theme", next);
+        } catch (e) { }
+        return next;
+      });
+      return;
+    }
 
+    // Otherwise fallback to toggling document/localStorage theme directly.
+    try {
+      const cur = document.documentElement.getAttribute("data-theme") || localStorage.getItem("theme") || "light";
+      const next = cur === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", next);
+      localStorage.setItem("theme", next);
+    } catch (e) { }
+  };
 
 
   const [yardName, setYardName] = useState("");
@@ -72,7 +104,7 @@ export default function OpenHomePage() {
 
   function handleLogout() {
     localStorage.removeItem("token");
-    navigate("./", { replace: true });
+    navigate("./loginPage", { replace: true });
   }
 
   //create settings form
@@ -84,6 +116,36 @@ export default function OpenHomePage() {
       setTimeout(() => setPanelVisible(true), 20);
     } else {
       setShowSettings(false);
+    }
+  };
+
+  const openUpdateSettings = () => {
+    if (!showSettings) {
+      setShowSettings(true);
+      setMode("update");
+      if (selectedYard) {
+        setYardName(selectedYard.name || "");
+        setDescription(selectedYard.description || "");
+        setWidth(selectedYard.width || 80);
+        setHeight(selectedYard.height || 80);
+        setCameraCount(Array.isArray(selectedYard.assignedCameras) ? selectedYard.assignedCameras.length : 0);
+        setShowCameraSetting(false);
+      }
+      setTimeout(() => setPanelVisible(true), 20);
+    } else {
+      setShowSettings(false);
+    }
+  };
+
+  const openCameraManagement = () => {
+    if (!showSettings) {
+      setShowSettings(true);
+      setShowCameraSetting(true);
+      setMode("update");
+      setTimeout(() => setPanelVisible(true), 20);
+    } else {
+      // toggle camera setting visibility when settings already open
+      setShowCameraSetting(prev => !prev);
     }
   };
 
@@ -180,8 +242,6 @@ export default function OpenHomePage() {
   };
 
 
-
-
   function CloseButton({ onDeleteConfirm }) {
     const [hover, setHover] = useState(false);
     const [confirming, setConfirming] = useState(false);
@@ -216,6 +276,7 @@ export default function OpenHomePage() {
   const [pickedCameras, setPickedCameras] = useState([]);
   const [draggingId, setDraggingId] = useState(null);
   const containerRef = useRef(null);
+  const [channelToDownload, setChannelToDownload] = useState(null);
 
 
   useEffect(() => {
@@ -306,7 +367,7 @@ export default function OpenHomePage() {
 
     loadYardCameras();
 
-  }, [selectedYard, cameras]);
+  }, [selectedYard?.id, cameras]);
 
 
 
@@ -412,6 +473,8 @@ export default function OpenHomePage() {
     const yardId = yard.id || yard._id;
     if (!yardId) return alert("Invalid yard");
 
+    setShowShimmer(true);
+
     try {
       const yardDetails = await getYardById(yardId);
 
@@ -421,7 +484,6 @@ export default function OpenHomePage() {
 
       const yardCameras = await getCameraById(yardId);
       setCameras(yardCameras);
-
 
       setPickedCameras(yardCameras.map(cam => ({
         id: cam.cameraId || cam.id,
@@ -433,6 +495,9 @@ export default function OpenHomePage() {
       console.error(err);
       setCameras([]);
       setPickedCameras([]);
+    } finally {
+      // keep shimmer visible briefly then hide
+      setTimeout(() => setShowShimmer(false), 700);
     }
   };
 
@@ -502,9 +567,17 @@ export default function OpenHomePage() {
   }, []);
 
 
-  return (
+  // clear channel selection when popup closes
+  useEffect(() => {
+    if (!(expanded && showChannels)) setChannelToDownload(null);
+  }, [expanded, showChannels]);
 
+
+  return (
     <div style={{ height: "800px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", position: "relative", paddingTop: "25px" }}>
+      {showShimmer && (
+        <div className="shimmer-overlay" />
+      )}
 
       <div style={{ position: "absolute", top: "15px", right: "15px" }}>
 
@@ -801,7 +874,10 @@ export default function OpenHomePage() {
                                   setDescription(yard.description || "");
                                   setWidth(yard.width || 80);
                                   setHeight(yard.height || 80);
-                                  setCameraCount(yard.cameraCount || 0);
+                                  setCameraCount(Array.isArray(yard.assignedCameras) ? yard.assignedCameras.length : (yard.cameraCount || 0));
+                                  setShowCameraSetting(false);
+                                  setShowSettings(true);
+                                  setTimeout(() => setPanelVisible(true), 20);
                                 }}
                                 style={{
                                   padding: "10px 15px",
@@ -1172,8 +1248,7 @@ export default function OpenHomePage() {
                           </span>
                           <input
                             type="number"
-                            min={60}
-                            max={100}
+                            defaultValue={80}
                             value={width}
                             onChange={(e) => setWidth(Number(e.target.value))}
                             style={{
@@ -1192,8 +1267,7 @@ export default function OpenHomePage() {
                           </span>
                           <input
                             type="number"
-                            min={60}
-                            max={100}
+                            defaultValue={80}
                             value={height}
                             onChange={(e) => setHeight(Number(e.target.value))}
                             style={{
@@ -1215,7 +1289,7 @@ export default function OpenHomePage() {
                         </span>
                         <input
                           type="number"
-                          value={cameraCount.length}
+                          value={selectedYard?.assignedCameras?.length || 0}
                           onChange={(e) => setCameraCount(Number(e.target.value))}
                           style={{
                             padding: "12px",
@@ -1475,28 +1549,31 @@ export default function OpenHomePage() {
                   ) : (
                     cameras.map(cam => {
                       const isPicked = pickedCameras.some(c => String(c.id) === String(cam.id));
+                      const isAssignedToOtherYard = assignedCameras.some(
+                        a => (a.camera?.id || a.cameraId || a.id) === cam.id && a.yardId !== selectedYard?.id
+                      );
 
                       return (
                         <div
                           key={cam.id}
-                          onClick={() => !isPicked && handleAddCameraToYard(cam)}
+                          onClick={() => !isPicked && !isAssignedToOtherYard && handleAddCameraToYard(cam)}
                           style={{
                             position: "relative",
-                            background: isPicked ? "#0df6c0" : "#222",
-                            border: isPicked ? "2px solid #0df6c0" : "2px solid #444",
+                            background: isPicked ? "#0df6c0" : isAssignedToOtherYard ? "#666" : "#222",
+                            border: isPicked ? "2px solid #0df6c0" : isAssignedToOtherYard ? "2px solid #999" : "2px solid #444",
                             borderRadius: "12px",
                             padding: "15px",
                             display: "flex",
                             flexDirection: "column",
                             alignItems: "center",
                             justifyContent: "center",
-                            cursor: isPicked ? "not-allowed" : "pointer",
+                            cursor: isPicked || isAssignedToOtherYard ? "not-allowed" : "pointer",
                             transform: isPicked ? "scale(1.07)" : "scale(1)",
-                            opacity: isPicked ? 1 : 0.85,
+                            opacity: isPicked ? 1 : isAssignedToOtherYard ? 0.6 : 0.85,
                             transition: "all 0.25s ease",
                           }}
                           onMouseEnter={e => {
-                            if (!isPicked) {
+                            if (!isPicked && !isAssignedToOtherYard) {
                               e.currentTarget.style.transform = "scale(1.05)";
                               e.currentTarget.style.borderColor = "#0df6c0";
                               e.currentTarget.style.boxShadow =
@@ -1505,11 +1582,11 @@ export default function OpenHomePage() {
                           }}
                           onMouseLeave={e => {
                             e.currentTarget.style.transform = isPicked ? "scale(1.07)" : "scale(1)";
-                            e.currentTarget.style.borderColor = isPicked ? "#0df6c0" : "#444";
+                            e.currentTarget.style.borderColor = isPicked ? "#0df6c0" : isAssignedToOtherYard ? "#999" : "#444";
                             e.currentTarget.style.boxShadow = "none";
                           }}
                         >
-                          {/* Assigned Badge */}
+                          {/* Assigned to This Yard Badge */}
                           {isPicked && (
                             <div
                               style={{
@@ -1528,10 +1605,29 @@ export default function OpenHomePage() {
                             </div>
                           )}
 
+                          {/* Assigned to Other Yard Badge */}
+                          {isAssignedToOtherYard && (
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: "6px",
+                                right: "6px",
+                                background: "#ff6b6b",
+                                color: "#fff",
+                                padding: "3px 6px",
+                                borderRadius: "8px",
+                                fontSize: "12px",
+                                fontWeight: "700",
+                              }}
+                            >
+                              ⚠ In Use
+                            </div>
+                          )}
+
                           <div
                             style={{
                               fontSize: "32px",
-                              color: isPicked ? "#111" : "#0df6c0",
+                              color: isPicked ? "#111" : isAssignedToOtherYard ? "#999" : "#0df6c0",
                               marginBottom: "10px",
                             }}
                           >
@@ -1541,7 +1637,7 @@ export default function OpenHomePage() {
                           <div
                             style={{
                               fontWeight: "600",
-                              color: isPicked ? "#111" : "#fff",
+                              color: isPicked ? "#111" : isAssignedToOtherYard ? "#999" : "#fff",
                               textAlign: "center",
                             }}
                           >
@@ -1551,7 +1647,7 @@ export default function OpenHomePage() {
                           <div
                             style={{
                               fontSize: "12px",
-                              color: isPicked ? "#222" : "#888",
+                              color: isPicked ? "#222" : isAssignedToOtherYard ? "#777" : "#888",
                               marginTop: "4px",
                             }}
                           >
@@ -1604,21 +1700,32 @@ export default function OpenHomePage() {
                     console.log("Picked cameras:", pickedCameras);
 
                     try {
+                      // Extract camera IDs - handle both nested (camera.id) and flat (cameraId, id) structures
                       const existingIds = assignedCameras
-                      console.log("assignedCameras:", assignedCameras)
-                      console.log(selectedYard.id)
-                        assignedCameras.filter(a => a.yardId === selectedYard.id)
-                        .map(a => String(a.cameraId));
+                        .filter(a => a.yardId === selectedYard.id)
+                        .map(a => String(a.camera?.id || a.cameraId || a.id));
+                      console.log("assignedCameras:", assignedCameras);
+                      console.log("Selected yard ID:", selectedYard.id);
                       console.log("Existing assigned camera IDs for this yard:", existingIds);
 
                       for (const cam of pickedCameras) {
                         if (!existingIds.includes(String(cam.id))) {
-                          console.log("Creating camera:", cam);
-                          await createCamera({
-                            yardId: yardId,
-                            cameraId: cam.id,
-                            location: { x: cam.x, y: cam.y }
-                          });
+                          // Check if camera is already assigned to ANY other yard
+                          const assignedToOtherYard = assignedCameras.find(
+                            a => (a.camera?.id || a.cameraId || a.id) === cam.id && a.yardId !== selectedYard.id
+                          );
+
+                          if (assignedToOtherYard) {
+                            console.log("Camera already assigned to another yard, skipping:", cam);
+                            alert(`Camera "${cam.name}" is already assigned to another yard. A camera can only be assigned to one yard at a time.`);
+                          } else {
+                            console.log("Creating camera:", cam);
+                            await createCamera({
+                              yardId: yardId,
+                              cameraId: cam.id,
+                              location: { x: cam.x, y: cam.y }
+                            });
+                          }
                         } else {
                           console.log("Camera already assigned, skipping:", cam);
                         }
@@ -1628,7 +1735,7 @@ export default function OpenHomePage() {
                       console.log("Picked camera IDs:", pickedIds);
 
                       const toUnassign = assignedCameras.filter(
-                        a => a.yardId === selectedYard.id && !pickedIds.includes(String(a.cameraId))
+                        a => a.yardId === selectedYard.id && !pickedIds.includes(String(a.camera?.id || a.cameraId || a.id))
                       );
 
                       console.log("Assigned cameras for this yard:", assignedCameras);
@@ -1636,7 +1743,7 @@ export default function OpenHomePage() {
 
                       for (const cam of toUnassign) {
                         console.log("Deleting camera:", cam);
-                        await DeleteYardCamera(yardId, cam.cameraId);
+                        await DeleteYardCamera(yardId, cam.camera?.id || cam.cameraId || cam.id);
                       }
 
                       alert("Cameras updated successfully!");
@@ -1684,8 +1791,21 @@ export default function OpenHomePage() {
       </div>
 
 
+
+      {/*
+
+
+                    ************************  MAIN PAGE ************************
+
+
+
+*/}
+
+
+
       {/* Main Yard Display */}
-      <div style={{ display: "flex", width: "100%", height: "100vh" }}>
+      <div
+        style={{ display: "flex", width: "100%", height: "100vh" }}>
         {/* Left Sidebar */}
         {!expanded && (
           <aside
@@ -1819,6 +1939,7 @@ export default function OpenHomePage() {
                   gap: "8px",
                   padding: "10px",
                   borderRadius: "1rem",
+                  //  justifyContent: "space-between",
                 }}
               >
                 <svg
@@ -1845,6 +1966,35 @@ export default function OpenHomePage() {
                 <h3 style={{ color: "black", margin: 0 }}>
                   Available Yards ({yards.length})
                 </h3>
+
+                <button
+                  onClick={handleToggleTheme}
+                  style={{
+                    marginLeft: "auto",
+                    width: "50px",
+                    height: "26px",
+                    borderRadius: "30px",
+                    border: "2px solid #2563eb",
+                    background: theme === "light" ? "#e5e7eb" : "#1f2937",
+                    position: "relative",
+                    cursor: "pointer",
+                    transition: "background 0.25s",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "20px",
+                      height: "20px",
+                      borderRadius: "50%",
+                      background: theme === "light" ? "#2563eb" : "#f9fafb",
+                      position: "absolute",
+                      top: "50%",
+                      left: theme === "light" ? "4px" : "26px",
+                      transform: "translateY(-50%)",
+                      transition: "left 0.25s",
+                    }}
+                  />
+                </button>
               </div>
 
             </div>
@@ -1861,12 +2011,15 @@ export default function OpenHomePage() {
                     key={yard.id}
                     // OnClick for selecting a yard
                     onClick={async () => {
+                      setShowShimmer(true)
                       try {
                         const yardDetails = await getYardById(yard.id);
                         setSelectedYard(yardDetails); // triggers the useEffect automatically
                       } catch (err) {
                         console.error(err);
                         setCameras([]); // optional fallback
+                      } finally {
+                        setTimeout(() => setShowShimmer(false), 700);
                       }
                     }}
 
@@ -1920,10 +2073,7 @@ export default function OpenHomePage() {
                       alt={yard.name}
                       style={{ width: "100%", height: "275px", borderRadius: "0.5rem", objectFit: "cover", marginBottom: "0.25rem" }}
                     />
-                    <p style={{ fontWeight: "bold", fontSize: "0.75rem", marginBottom: "0.25rem" }}>{yard.name}</p>
-                    <small style={{ fontSize: "0.625rem", color: selectedYard?.id === yard.id ? "#e5e7eb" : "#6b7280" }}>
-                      {yard.width}w × {yard.height}h
-                    </small>
+                    <p style={{ fontWeight: "bold", fontSize: "0.75rem", marginBottom: "0.25rem" }}>{yard.name} Yard</p>
                   </div>
                 ))}
             </nav>
@@ -1931,10 +2081,9 @@ export default function OpenHomePage() {
             {/* Footer / Logout */}
             <div style={{ padding: "1rem", borderTop: "1px solid #ccc", justifyContent: "center" }}>
               <button
-                ocClick={handleLogout}
+                onClick={handleLogout}
                 style={{
                   width: "100%",
-                  height: "100%",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -1943,11 +2092,20 @@ export default function OpenHomePage() {
                   borderRadius: "10px",
                   background: "linear-gradient(135deg,#ef4444,#ec4899)",
                   color: "white",
-                  fontWeight: "500",
+                  fontWeight: "600",
                   cursor: "pointer",
                   boxShadow: "0 5px 15px rgba(0,0,0,0.2)",
-                  transition: "all 0.2s",
+                  transition: "all 0.3s ease",
                   border: "none",
+                  fontSize: "16px",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                  e.currentTarget.style.boxShadow = "0 8px 20px rgba(0,0,0,0.3)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow = "0 5px 15px rgba(0,0,0,0.2)";
                 }}
               >
                 <span>Logout</span>
@@ -2127,38 +2285,65 @@ export default function OpenHomePage() {
                             padding: "3px 5px",
                             borderRadius: "4px",
                             transition: "background 0.2s",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: "8px",
                           }}
-                          onClick={async () => {
-                            try {
-                              await DawnloadVideo({
-                                channelName: ch.resolution,
-                                dayWithTime: new Date().toISOString(),
-                                durationInMinutes: 30,
-                              });
-                              console.log("API called successfully:", activeCam.name, ch.resolution);
-                            } catch (err) {
-                              console.error("API call failed:", err);
-                            }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setChannelToDownload({ cam: activeCam, channel: ch });
                           }}
                           onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.2)")}
                           onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                         >
-                          {ch.resolution}
+                          <span>{ch.resolution}</span>
+                          {
+                            channelToDownload && channelToDownload.cam?.id === activeCam.id &&
+                            channelToDownload.channel?.resolution === ch.resolution && (
+                              <button
+                                onClick={async (ev) => {
+                                  ev.stopPropagation();
+                                  try {
+                                    await DawnloadVideo({
+                                      channelName: ch.resolution,
+                                      dayWithTime: new Date().toISOString(),
+                                      durationInMinutes: 10,
+                                    });
+                                    console.log("API called successfully:", activeCam.name, ch.resolution);
+                                  } catch (err) {
+                                    console.error("API call failed:", err);
+                                  }
+                                  setChannelToDownload(null);
+                                }}
+                                style={{
+                                  background: "#0df6c0",
+                                  border: "none",
+                                  color: "#000",
+                                  padding: "4px 8px",
+                                  borderRadius: "6px",
+                                  cursor: "pointer",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                Download
+                              </button>
+                            )
+                          }
                         </div>
                       ))}
                   </div>
                 )}
-
-
               </div>
             </div>
           )}
 
-          {/* Info panel only in normal mode */}
-          {!expanded && (
+          {/* Info Panels below yard image */}
+          {!expanded && selectedYard && (
             <div
+              className="info-panels layout-wrapper"
               style={{
-                width: "95%", // slightly wider
+                width: "95%",
                 maxWidth: "900px",
                 marginTop: "30px",
                 display: "flex",
@@ -2169,81 +2354,179 @@ export default function OpenHomePage() {
             >
               {/* Yard Info */}
               <div
+                className="yard-info main-panel"
                 style={{
                   flex: 1,
-                  background: "rgba(28,28,28,0.5)",
-                  backdropFilter: "blur(10px)",
-                  borderRadius: "12px",
-                  padding: "20px",
-                  color: "#fff",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "15px",
-                  boxShadow: "0 0 20px rgba(0,0,0,0.4)",
-                }}
-              >
-                <h2
-                  style={{
-                    margin: 0,
-                    fontWeight: 700,
-                    background: "linear-gradient(90deg, #ff6a00, #ee0979)",
-                    WebkitBackgroundClip: "text",
-                    WebkitTextFillColor: "transparent",
-                  }}
-                >
-                  {selectedYard?.name}
-                </h2>
-                <p style={{ margin: 0 }}><strong>Width:</strong> {selectedYard?.width}%</p>
-                <p style={{ margin: 0 }}><strong>Height:</strong> {selectedYard?.height}%</p>
-                <p style={{ margin: 0 }}><strong>Cameras:</strong> {pickedCameras.length || 0}</p>
-                <p style={{ margin: 0 }}><strong>Description:</strong> {selectedYard?.description || "No description"}</p>
-              </div>
-
-              {/* Assigned Cameras on the right */}
-              <div
-                style={{
-                  width: "250px",
-                  background: "rgba(28,28,28,0.5)",
+                  background: "rgba(28,28,28,0.9)",
                   backdropFilter: "blur(10px)",
                   borderRadius: "12px",
                   padding: "15px",
                   color: "#fff",
-                  boxShadow: "0 0 20px rgba(0,0,0,0.4)",
+                  boxShadow: "0 0 30px rgba(0,0,0,0.6)",
+                  border: "1px solid rgba(255,255,255,0.1)",
                   display: "flex",
                   flexDirection: "column",
                   gap: "10px",
-                  maxHeight: "350px",
-                  overflowY: "auto",
-                  scrollbarWidth: "none",
-                  msOverflowStyle: "none",
+                  height: "230px",
+                  overflow: "hidden",
                 }}
               >
-                <h3 style={{ marginBottom: "10px", fontSize: "16px" }}>Assigned Cameras</h3>
-                {pickedCameras.length > 0 ? (
-                  pickedCameras.map(cam => (
-                    <div
-                      key={cam.id}
-                      style={{
-                        padding: "8px",
-                        borderRadius: "10px",
-                        background: "rgba(0,0,0,0.3)",
-                        display: "flex",
-                        flexDirection: "column",
-                        transition: "background 0.2s",
-                        cursor: "pointer",
-                      }}
-                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(0,0,0,0.5)")}
-                      onMouseLeave={e => (e.currentTarget.style.background = "rgba(0,0,0,0.3)")}
-                    >
-                      <strong>{cam.name}</strong>
-                      <div style={{ fontSize: "12px", marginTop: "4px", color: "#ccc" }}>
-                        {cam.description}
+                {/* Title Div */}
+                <div className="panel-title" style={{ flex: "0 0 auto" }}>
+                  <h2
+                    style={{
+                      margin: 0,
+                      fontWeight: 900,
+                      background: "linear-gradient(90deg, #ff6a00, #ee0979)",
+                      WebkitBackgroundClip: "text",
+                      WebkitTextFillColor: "transparent",
+                      fontSize: "25px",
+                    }}
+                  >
+                    {selectedYard?.name}
+                  </h2>
+                </div>
+
+                {/* Content Div */}
+                <div className="panel-content" style={{ display: "flex", flexDirection: "column", gap: "6px", flex: "1" }}>
+                  <p style={{ margin: "4px 0", fontSize: "14px" }}><strong style={{ fontWeight: 900 }}>Width : </strong> {selectedYard?.width}%</p>
+                  <p style={{ margin: "4px 0", fontSize: "14px" }}><strong style={{ fontWeight: 900 }}>Height : </strong> {selectedYard?.height}%</p>
+                  <p style={{ margin: "4px 0", fontSize: "14px" }}><strong style={{ fontWeight: 900 }}>Cameras : </strong> {pickedCameras.length || 0}</p>
+                  <p style={{ margin: "4px 0", fontSize: "14px" }}><strong style={{ fontWeight: 900 }}>Description : </strong> {selectedYard?.description || "No description"}</p>
+                </div>
+
+                {/* Button Div */}
+                <div className="panel-actions" style={{ flex: "0 0 auto" }}>
+                  <button
+                    onClick={openUpdateSettings}
+                    style={{
+                      padding: "10px 12px",
+                      background: "linear-gradient(90deg, #ff6a00, #ee0979)",
+                      color: "#000",
+                      border: "none",
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                      fontWeight: "600",
+                      fontSize: "12px",
+                      transition: "all 0.3s ease",
+                      width: "100%",
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                      e.currentTarget.style.boxShadow = "0 5px 15px rgba(255,106,0,0.4)";
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.transform = "translateY(0)";
+                      e.currentTarget.style.boxShadow = "none";
+                    }}
+                  >
+                    ✏️ Update Yard
+                  </button>
+                </div>
+              </div>
+
+              {/* Assigned Cameras */}
+              <div
+                className="assigned-cameras side-panel"
+                style={{
+                  width: "250px",
+                  background: "rgba(28,28,28,0.9)",
+                  backdropFilter: "blur(10px)",
+                  borderRadius: "12px",
+                  padding: "15px",
+                  color: "#fff",
+                  boxShadow: "0 0 30px rgba(0,0,0,0.6)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px",
+                  height: "230px",
+                  overflow: "hidden",
+                }}
+              >
+                {/* Title Div */}
+                <div className="panel-title" style={{ flex: "0 0 auto" }}>
+                  <h3
+                    style={{
+                      margin: 0,
+                      background: "linear-gradient(90deg, #1ea711, #0df6c0)",
+                      WebkitBackgroundClip: "text",
+                      WebkitTextFillColor: "transparent",
+                      fontWeight: 900,
+                    }}
+                  >
+                    Assigned Cameras
+                  </h3>
+                </div>
+
+                {/* Content Div - Scrollable */}
+                <div
+                  className="panel-content scrollable"
+                  style={{
+                    flex: 1,
+                    overflowY: "auto",
+                    paddingRight: "5px",
+                    scrollbarWidth: "thin",
+                    scrollbarColor: "rgba(13,246,192,0.5) rgba(0,0,0,0.3)",
+                  }}
+                >
+                  {pickedCameras.length > 0 ? (
+                    pickedCameras.map(cam => (
+                      <div
+                        key={cam.id}
+                        style={{
+                          padding: "6px",
+                          borderRadius: "6px",
+                          background: "rgba(0,0,0,0.3)",
+                          display: "flex",
+                          flexDirection: "column",
+                          transition: "background 0.2s",
+                          cursor: "pointer",
+                          fontSize: "11px",
+                          marginBottom: "4px",
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = "rgba(13,246,192,0.1)")}
+                        onMouseLeave={e => (e.currentTarget.style.background = "rgba(0,0,0,0.3)")}
+                      >
+                        <strong>{cam.name}</strong>
+                        <div style={{ fontSize: "10px", marginTop: "2px", color: "#aaa" }}>
+                          ID: {cam.id}
+                        </div>
                       </div>
-                    </div>
-                  ))
-                ) : (
-                  <p style={{ fontSize: "14px", color: "#aaa" }}>No cameras assigned.</p>
-                )}
+                    ))
+                  ) : (
+                    <p style={{ fontSize: "14px", color: "#888", margin: 0 }}>No cameras assigned.</p>
+                  )}
+                </div>
+
+                {/* Button Div */}
+                <div className="panel-actions" style={{ flex: "0 0 auto" }}>
+                  <button
+                    onClick={openCameraManagement}
+                    style={{
+                      padding: "10px 12px",
+                      background: "linear-gradient(90deg, #1ea711, #0df6c0)",
+                      color: "#000",
+                      border: "none",
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                      fontWeight: "600",
+                      fontSize: "12px",
+                      transition: "all 0.3s ease",
+                      width: "100%",
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                      e.currentTarget.style.boxShadow = "0 5px 15px rgba(13,246,192,0.4)";
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.transform = "translateY(0)";
+                      e.currentTarget.style.boxShadow = "none";
+                    }}
+                  >
+                    🎥 Manage Cameras
+                  </button>
+                </div>
               </div>
             </div>
           )}

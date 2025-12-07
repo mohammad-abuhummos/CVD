@@ -382,24 +382,18 @@ export default function OpenHomePage({ theme, setTheme }) {
   // ------------------------- ADD CAMERA -------------------------
   function handleAddCameraToYard(cam) {
     if (!selectedYard?.id) return alert("Select a yard first.");
-
-
     if (pickedCameras.some(c => String(c.id) === String(cam.id))) return;
-
-
-
-    const newAssign = { cameraId: cam.id, x: 50, y: 50 };
     const newPicked = { ...cam, x: 50, y: 50 };
-
-    if (!cam.id) {
-      console.error("Camera id is missing", cam);
-      return;
-    }
-
-
-    setAssignedCameras(prev => [...prev, newAssign]);
+    if (!cam.id) return console.error("Camera id is missing", cam);
     setPickedCameras(prev => [...prev, newPicked]);
+
+    const isAssignedToOtherYard = assignedCameras.some(a => {
+      const camId = a.camera?.id || a.cameraId || a.id;
+      return Boolean(a.yardId && camId === cam.id && a.yardId !==
+        selectedYard?.id);
+    });
   }
+
 
   // ------------------------- REMOVE CAMERA -------------------------
 
@@ -531,6 +525,42 @@ export default function OpenHomePage({ theme, setTheme }) {
     }
   }, [mode, selectedYard]);
 
+
+
+  // Add this function at the top-level of the component
+  const loadYardsAndCameras = async () => {
+    try {
+      // Fetch all yards
+      const resYards = await fetch(YardsBaseUrl(), {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!resYards.ok) throw new Error(`HTTP error! status: ${resYards.status}`);
+      const yardsData = await resYards.json();
+      setYards(yardsData);
+
+      // Fetch all yard cameras
+      const camerasPromises = yardsData.map(async (yard) => {
+        const res = await fetch(`${YardsBaseUrl()}/${yard.id}`, {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+            "Content-Type": "application/json",
+          },
+        });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return Array.isArray(data.yardCameras) ? data.yardCameras.map(a => ({ ...a, yardId: yard.id })) : [];
+      });
+
+      const camerasPerYard = await Promise.all(camerasPromises);
+      const allAssignedCameras = camerasPerYard.flat();
+      setAssignedCameras(allAssignedCameras);
+    } catch (err) {
+      console.error("Failed to load yards or cameras:", err);
+    }
+  };
 
 
   useEffect(() => {
@@ -706,7 +736,6 @@ export default function OpenHomePage({ theme, setTheme }) {
                   fontWeight: "bold",
                   transition: "color 0.3s ease, transform 0.3s ease",
                 }}
-
                 onMouseEnter={(e) => {
                   e.currentTarget.style.transform = "scale(0.85)";
                 }}
@@ -1622,6 +1651,7 @@ export default function OpenHomePage({ theme, setTheme }) {
                       const isAssignedToOtherYard = assignedCameras.some(
                         a => (a.camera?.id || a.cameraId || a.id) === cam.id && a.yardId !== selectedYard?.id
                       );
+                      console.log("Checking camera assignment:", cam.id, isAssignedToOtherYard);
 
                       return (
                         <div
@@ -1771,6 +1801,9 @@ export default function OpenHomePage({ theme, setTheme }) {
                         .filter(a => a.yardId === selectedYard.id)
                         .map(a => String(a.camera?.id || a.cameraId || a.id));
 
+                      console.log("Existing assigned camera IDs for this yard:", existingIds);
+                      console.log("Existing assigned camera IDs for this yard:", assignedCameras);
+
                       for (const cam of pickedCameras) {
                         if (!existingIds.includes(String(cam.id))) {
                           // Check if camera is already assigned to ANY other yard
@@ -1805,18 +1838,11 @@ export default function OpenHomePage({ theme, setTheme }) {
 
                       alert("Cameras updated successfully!");
 
-                      setAssignedCameras(prev =>
-                        prev
-                          .filter(a => a.yardId !== yardId) // keep cameras of other yards
-                          .concat(
-                            pickedCameras.map(c => ({
-                              cameraId: c.id,
-                              yardId: yardId,       // <-- make sure yardId is included
-                              location: { x: c.x, y: c.y }
-                            }))
-                          )
-                      );
-
+                      try {
+                        await loadYardsAndCameras();
+                      } catch (refreshErr) {
+                        console.error("Failed to refresh yards after camera update:", refreshErr);
+                      }
 
                     } catch (err) {
                       console.error("Failed to update cameras:", err);
@@ -2064,7 +2090,7 @@ export default function OpenHomePage({ theme, setTheme }) {
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      transition: "left 0.25s, background 0.25s",
+                      transition: "left  0.25s, background 0.25s",
                       fontSize: "16px",
                       fontWeight: "bold",
                       color: theme === "light" ? "#fff" : "#000"

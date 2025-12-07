@@ -643,7 +643,7 @@ export default function OpenHomePage({ theme, setTheme }) {
 
 
   return (
-    <div style={{ height: "800px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", position: "relative", paddingTop: "25px" }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", position: "relative", paddingTop: "25px" }}>
       {showShimmer && (
         <div className="shimmer-overlay" />
       )}
@@ -2047,18 +2047,20 @@ export default function OpenHomePage({ theme, setTheme }) {
                   }}
                 >
                   {/* Light icon */}
-                  <span style={{ opacity: theme === "light" ? 1 : 0.4, transition: "opacity 0.25s" }}>☀</span>
+                  <span style={{ opacity: theme === "light" ? 1 : 0.4 }}>☀</span>
 
                   {/* Toggle circle */}
                   <div
                     style={{
                       position: "absolute",
                       top: "3px",
-                      left: theme === "light" ? "3px" : "48.5px",
-                      width: "25px",
+                      left: theme === "light" ? "3px" : "calc(100% - 3px - 26px)",
+                      width: "26px",
                       height: "26px",
                       borderRadius: "50%",
-                      background: theme === "light" ? "linear-gradient(90deg, yellow 75%, darkblue 90%)" : "linear-gradient(90deg, yellow 1%, darkblue 30%)",
+                      background: theme === "light"
+                        ? "linear-gradient(90deg, yellow 75%, darkblue 90%)"
+                        : "linear-gradient(90deg, yellow 1%, darkblue 30%)",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -2072,8 +2074,9 @@ export default function OpenHomePage({ theme, setTheme }) {
                   </div>
 
                   {/* Dark icon */}
-                  <span style={{ opacity: theme === "dark" ? 1 : 0.4, transition: "opacity 0.25s" }}>࣪☾</span>
+                  <span style={{ opacity: theme === "dark" ? 1 : 0.4 }}>࣪☾</span>
                 </button>
+
 
               </div>
 
@@ -2231,7 +2234,7 @@ export default function OpenHomePage({ theme, setTheme }) {
               style={{
                 position: "relative",
                 width: expanded ? "100%" : "100%",
-                height: expanded ? "100%" : "auto",
+                height: expanded ? "150%" : "auto",
                 maxWidth: expanded ? "100%" : "1400px",
                 display: "flex",
                 flexDirection: "column",
@@ -2268,26 +2271,26 @@ export default function OpenHomePage({ theme, setTheme }) {
                 onMouseEnter={() => setHovered(true)}
                 onMouseLeave={() => !expanded && setHovered(false)}
               >
-                {!expanded &&(
-                <div
-                  style={{
-                    position: "fixed",
-                    top: "25%",
-                    left: "25%",
-                    width: "50%",
-                    height: "50%",
-                    border: "none",
-                    borderRadius: "50%", 
-                    background: "radial-gradient(circle, rgba(255, 255, 255, 0.3) 10%, rgba(255, 255, 255, 0) 60%)",
-                    zIndex: 9999,
-                    display: "flex",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    fontSize: "35px"
-                  }}
-                >
-                  <p style={{ position: "relative", width: "2px", height: "25px", fontSize:"35px" }}>🔍</p>
-                </div>
+                {!expanded && (
+                  <div
+                    style={{
+                      position: "fixed",
+                      top: "25%",
+                      left: "25%",
+                      width: "50%",
+                      height: "50%",
+                      border: "none",
+                      borderRadius: "50%",
+                      background: "radial-gradient(circle, rgba(255, 255, 255, 0.3) 10%, rgba(255, 255, 255, 0) 60%)",
+                      zIndex: 9999,
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      fontSize: "35px"
+                    }}
+                  >
+                    <p style={{ position: "relative", width: "2px", height: "25px", fontSize: "35px" }}>🔍</p>
+                  </div>
                 )}
 
                 {/* Main image */}
@@ -2379,39 +2382,53 @@ export default function OpenHomePage({ theme, setTheme }) {
                   const popupHeight = 260;
                   const popupWidth = 260;
 
-                  const topPx = (window.innerHeight * activeCam.y) / 100;
-                  const leftPx = (window.innerWidth * activeCam.x) / 100;
+                  const pointTop = (window.innerHeight * activeCam.y) / 100;
+                  const pointLeft = (window.innerWidth * activeCam.x) / 100;
 
-                  let transformY = 50;
-                  if (topPx + popupHeight > window.innerHeight) {
-                    transformY = -popupHeight - 10;
+                  // centered position in px
+                  let topPx = pointTop - popupHeight / 2;
+                  let leftPx = pointLeft - popupWidth / 2;
+
+                  // Try placing above if below doesn't fit
+                  if (pointTop + popupHeight > window.innerHeight) {
+                    topPx = pointTop - popupHeight - 90;  // moves above the camera
                   }
 
-                  let transformX = -50;
-                  if (leftPx + popupWidth / 2 > window.innerWidth) {
-                    transformX = window.innerWidth - leftPx - popupWidth;
-                  } else if (leftPx - popupWidth / 2 < 0) {
-                    transformX = -leftPx + 10;
-                  }
+
+                  // clamp vertically
+                  if (topPx < 0) topPx = 0;
+                  if (topPx + popupHeight > window.innerHeight)
+                    topPx = window.innerHeight - popupHeight;
+
+                  // clamp horizontally
+                  if (leftPx < 0) leftPx = 0;
+                  if (leftPx + popupWidth > window.innerWidth)
+                    leftPx = window.innerWidth - popupWidth;
+
 
                   return (
                     <div
                       style={{
                         position: "absolute",
-                        top: `${activeCam.y}%`,
-                        left: `${activeCam.x}%`,
-                        transform: `translate(${transformX}px, ${transformY}px)`,
+                        top: `${topPx}px`,
+                        left: `${leftPx}px`,
+                        width: `${popupWidth}px`,
+
+                        // THE FIX:
+                        maxHeight: "80vh",
+                        overflowY: "auto",
+
                         background: "rgba(0,0,0,0.9)",
                         color: "#fff",
                         borderRadius: "12px",
                         padding: "15px",
-                        width: `${popupWidth}px`,
                         display: "flex",
                         flexDirection: "column",
                         gap: "12px",
                         zIndex: 3000,
                         fontFamily: "Arial, sans-serif"
                       }}
+
                       onClick={e => e.stopPropagation()}
                     >
                       {/* DATE */}
